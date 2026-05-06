@@ -2,7 +2,6 @@ import numpy as np
 import cv2
 import logging
 import os
-import sys
 
 try:
     import tflite_runtime.interpreter as tflite
@@ -23,16 +22,22 @@ class AnomalyClassifier:
             self.input_details = self.interpreter.get_input_details()
             self.output_details = self.interpreter.get_output_details()
             self.input_shape = self.input_details[0]['shape'][1:3]
-            logging.info(f"IA lista. Configurada para YOLOv8 con entrada: {self.input_shape}")
+            
+            # --- Variables de Autocalibracion Dinamica ---
+            self.processed_frames = 0
+            self.calibration_limit = 45  # Calibra durante los primeros ~3-4 segundos de video
+            self.max_baseline_score = 0.0
+            self.threshold = 0.35  # Valor inicial por defecto
+            self.is_calibrated = False
+            
+            logging.info(f"IA lista con entrada: {self.input_shape}. Algoritmo de Autocalibracion Dinamica Activo.")
         except Exception as e:
             logging.error(f"Error carga TFLite: {e}")
 
     def preprocess(self, abn_frame):
         if abn_frame is None: return None
-        # Redimensionar al tamaño del modelo
         img = cv2.resize(abn_frame, (self.input_shape[1], self.input_shape[0]))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        # Normalizar
         img = img.astype(np.float32) / 255.0
         return np.expand_dims(img, axis=0)
 
@@ -48,30 +53,29 @@ class AnomalyClassifier:
             
             # Estructura YOLOv8 Detect [1, 8, 8400]
             if len(output_data.shape) == 3 and output_data.shape[1] == 8:
-                # Incluimos el Indice 4 (Clase 0) que es el detector real de espagueti
                 class_scores = output_data[0, 4:, :] 
                 score = float(np.max(class_scores))
             else:
                 flat_output = output_data.flatten()
                 score = float(flat_output[0])
                 
-            # --- Perfiles de Calibracion Dinamica para Deteccion Temprana ---
-            video_name = ""
-            for arg in sys.argv:
-                if "videoimp" in arg:
-                    video_name = arg
-
-            if "videoimp2" in video_name:
-                # Sano (piramides naranjas): Maximo Indice 4 es 0.53. Umbral a 0.55 lo mantiene VERDE.
-                threshold = 0.55
-            elif "videoimp1" in video_name:
-                # Fallo (hilos): Maximo Indice 4 es 0.75. Umbral a 0.20 activa alarma de inmediato.
-                threshold = 0.20
-            else:
-                # Camara en vivo u otros videos
-                threshold = 0.35
+            # --- FASE DE AUTOCALIBRACION DINAMICA (Universal) ---
+            if not self.is_calibrated:
+                self.processed_frames += 1
+                if score > self.max_baseline_score:
+                    self.max_baseline_score = score
                 
-            label = 1 if score > threshold else 0 
+                label = 0  # No disparamos errores durante la fase de calibracion inicial
+                
+                if self.processed_frames >= self.calibration_limit:
+                    # Fijamos el umbral dinamico agregando un margen del 15% sobre el ruido base observado
+                    self.threshold = min(0.88, max(0.20, self.max_baseline_score + 0.15))
+                    self.is_calibrated = True
+                    logging.info(f"--> Autocalibracion Completada. Ruido Base: {self.max_baseline_score:.4f} | Umbral Fijado: {self.threshold:.4f}")
+            else:
+                # Fase de Monitoreo Activo usando el umbral auto-aprendido
+                label = 1 if score > self.threshold else 0 
+                
             return score, label
         except Exception as e:
             logging.error(f"Error clasificación: {e}")

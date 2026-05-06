@@ -6,7 +6,7 @@ import argparse
 import cv2
 import numpy as np
 
-print("--- [SISTEMA DE MONITOREO AUTOMATICO DE CAMA V5] ---")
+print("--- [SISTEMA DE MONITOREO UNIVERSAL AUTOCALIBRADO V6] ---")
 
 try:
     from camera_stream import CameraStream
@@ -18,7 +18,7 @@ except ImportError as e:
     sys.exit(1)
 
 def main():
-    parser = argparse.ArgumentParser(description="AI 3D Printer Monitor - Bed Tracker")
+    parser = argparse.ArgumentParser(description="AI 3D Printer Monitor - Universal Self-Calibrating")
     parser.add_argument("--camera", type=str, default="0")
     parser.add_argument("--classifier_model", type=str, default="models/anomaly_efficientnet.tflite")
     parser.add_argument("--no_view", action="store_true", help="Desactivar visualizacion")
@@ -56,18 +56,27 @@ def main():
 
             if abn_crop is not None:
                 score, label = classifier.classify(abn_crop)
-                logic.update(label)
-                avg_fail = logic.get_average()
+                
+                # Solo actualizamos la logica de fallos si la calibracion esta terminada
+                if classifier.is_calibrated:
+                    logic.update(label)
+                    avg_fail = logic.get_average()
 
-                if logic.should_alert():
-                    status_text = "!!! ERROR DE IMPRESION DETECTADO !!!"
-                    status_color = (0, 0, 255)
-                elif avg_fail > 0.2:
-                    status_text = "AVISO: ANOMALIA SOSPECHOSA"
-                    status_color = (0, 165, 255)
+                    if logic.should_alert():
+                        status_text = "!!! ERROR DE IMPRESION DETECTADO !!!"
+                        status_color = (0, 0, 255) # Rojo
+                    elif avg_fail > 0.2:
+                        status_text = "AVISO: ANOMALIA SOSPECHOSA"
+                        status_color = (0, 165, 255) # Naranja
+                    else:
+                        status_text = "ESTADO: IMPRESION SANA"
+                        status_color = (0, 255, 0) # Verde
                 else:
-                    status_text = "ESTADO: IMPRESION SANA"
-                    status_color = (0, 255, 0)
+                    # Durante la calibracion inicial
+                    progress = int((classifier.processed_frames / classifier.calibration_limit) * 100)
+                    status_text = f"AUTOCALIBRANDO RU_DO BASE... {progress}%"
+                    status_color = (255, 140, 0) # Azul/Cian profundo
+                    avg_fail = score
 
             # --- Visualizacion ---
             if not args.no_view:
@@ -77,11 +86,17 @@ def main():
                 cv2.putText(frame, "CAMA BAJO MONITOREO", (x, max(20, y - 5)), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 
-                # Barra superior (Sin caracteres especiales para evitar ??)
+                # Barra superior
                 cv2.rectangle(frame, (0, 0), (w_f, 50), (20, 20, 20), -1)
-                cv2.putText(frame, status_text, (20, 33), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
-                cv2.putText(frame, f"IA Conf: {avg_fail:.2f}", (w_f - 180, 33), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                cv2.putText(frame, status_text, (20, 33), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+                
+                # Mostrar umbral actual de la IA en la barra
+                if classifier.is_calibrated:
+                    cv2.putText(frame, f"Umbral IA: {classifier.threshold:.2f} | Conf: {avg_fail:.2f}", (w_f - 300, 33), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                else:
+                    cv2.putText(frame, f"Ruido: {avg_fail:.2f}", (w_f - 180, 33), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 
                 # Miniatura
                 if abn_crop is not None:
@@ -90,7 +105,7 @@ def main():
                     cv2.rectangle(frame, (20, 60), (170, 210), (255, 255, 255), 1)
                     cv2.putText(frame, "ENFOQUE IA", (20, 225), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-                cv2.imshow("MONITOR AUTOMATICO", frame)
+                cv2.imshow("MONITOR AUTOMATICO UNIVERSAL", frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'): break
 
     finally:
