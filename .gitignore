@@ -1,0 +1,11 @@
+# Videos pesados de prueba
+*.mp4
+*.avi
+
+# Python caché
+__pycache__/
+*.pyc
+
+# Carpeta temporal residual
+Procesamiento%20imagenes/
+/__pyrefly_virtual__/

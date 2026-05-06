@@ -1,0 +1,7 @@
+opencv-python
+numpy
+onnxruntime
+requests
+# Para Raspberry Pi usa: tflite-runtime
+# Para desarrollo en Mac/PC usa: tensorflow
+tensorflow
