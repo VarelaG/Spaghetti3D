@@ -198,7 +198,7 @@ async function processFrameLoop() {
       const resized = tf.image.resizeBilinear(cropped, [640, 640]);
       
       // 4. Normalizar píxeles de 0-255 a flotantes 0.0-1.0
-      const normalized = resized.cast('float32').div(255.0);
+      const normalized = resized.toFloat().div(255.0);
       
       // 5. Expandir dimensiones a [1, 640, 640, 3] para lote
       const batched = normalized.expandDims(0);
