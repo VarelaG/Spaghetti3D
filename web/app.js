@@ -224,6 +224,8 @@ async function processFrameLoop() {
 
   } catch (error) {
     console.error("Error durante procesamiento de frame por la IA:", error);
+    updateStateBadge("ERROR", "state-error");
+    elStateBadgeText.innerHTML = `ERROR IA: ${error.message}`;
   }
 
   // Siguiente iteración
