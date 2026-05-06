@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Spaghetti3D • Realtime Web Monitor</title>
+  
+  <!-- SEO & Mobile Optimization -->
+  <meta name="description" content="Monitoreo inteligente de fallos de impresión 3D en tiempo real directamente en tu navegador móvil.">
+  <meta name="theme-color" content="#0a0b10">
+  
+  <!-- Google Fonts & FontAwesome -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- styles.css link -->
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- TensorFlow.js and TFLite Task API CDNs -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.10.0/dist/tf-core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu@4.10.0/dist/tf-backend-cpu.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.10.0/dist/tf-backend-webgl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.9/dist/tf-tflite.min.js"></script>
+</head>
+<body>
+  <!-- Background glowing elements -->
+  <div class="glow-bg glow-cyan"></div>
+  <div class="glow-bg glow-pink"></div>
+
+  <div class="app-container">
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-icon"><i class="fa-solid fa-cube fa-spin"></i></div>
+        <div class="logo-text">
+          <h1>Spaghetti<span>3D</span></h1>
+          <p>SISTEMA DE MONITOREO INTELIGENTE V6.1</p>
+        </div>
+      </div>
+      <div class="header-badge" id="model-status">
+        <i class="fa-solid fa-microchip"></i> Cargando Modelo IA...
+      </div>
+    </header>
+
+    <main class="app-main">
+      <!-- Left side: Camera Viewport -->
+      <section class="viewport-section">
+        <div class="glass-card viewport-card" id="viewport-container">
+          <div class="card-glow"></div>
+          
+          <!-- State Badge overlay -->
+          <div class="status-badge state-calibrating" id="state-badge">
+            <span class="pulse-dot"></span> <span id="state-badge-text">DESCONECTADO</span>
+          </div>
+
+          <!-- Video & Canvas container -->
+          <div class="video-wrapper">
+            <video id="webcam" autoplay playsinline muted></video>
+            <canvas id="canvas"></canvas>
+            
+            <!-- Scanning laser animation -->
+            <div class="scan-laser" id="laser"></div>
+            
+            <!-- Fullscreen red alert overlay -->
+            <div class="alert-overlay" id="alert-screen">
+              <div class="alert-content">
+                <i class="fa-solid fa-triangle-exclamation fa-beat"></i>
+                <h2>¡PARADA POR IA!</h2>
+                <p>ANOMALÍA DETECTADA EN LA IMPRESIÓN</p>
+                <div class="alert-sub">Sustentado por promedio móvil (Fallo Crítico)</div>
+                <button class="btn btn-secondary" id="btn-dismiss-alert">
+                  <i class="fa-solid fa-rotate-left"></i> Reanudar Monitoreo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right side: Controls & Diagnostics -->
+      <section class="control-section">
+        <!-- Controls Card -->
+        <div class="glass-card card-controls">
+          <h3><i class="fa-solid fa-sliders"></i> Panel de Control</h3>
+          <p class="section-desc">Iniciá la cámara trasera del celu y apuntá hacia la cama de impresión.</p>
+          
+          <div class="btn-group">
+            <button class="btn btn-primary" id="btn-start">
+              <i class="fa-solid fa-video"></i> Activar Cámara
+            </button>
+            <button class="btn btn-danger" id="btn-stop" disabled>
+              <i class="fa-solid fa-video-slash"></i> Desactivar
+            </button>
+          </div>
+
+          <div class="camera-selection">
+            <label for="camera-select"><i class="fa-solid fa-camera-rotate"></i> Seleccionar Cámara:</label>
+            <select id="camera-select" class="custom-select">
+              <option value="environment">Cámara Trasera (Recomendada)</option>
+              <option value="user">Cámara Frontal</option>
+            </select>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="btn-group-secondary">
+            <button class="btn btn-secondary" id="btn-recalibrate" disabled>
+              <i class="fa-solid fa-arrows-spin"></i> Recalibrar Ruido Base
+            </button>
+            <button class="btn btn-warning" id="btn-simulate">
+              <i class="fa-solid fa-flask"></i> Simular Fallo (Prueba)
+            </button>
+          </div>
+        </div>
+
+        <!-- Diagnostics Card -->
+        <div class="glass-card card-diagnostics">
+          <h3><i class="fa-solid fa-chart-simple"></i> Diagnósticos de IA</h3>
+          
+          <div class="metric-container">
+            <div class="metric-header">
+              <span>Confianza de Anomalía (Fallo)</span>
+              <span id="score-text" class="text-green">0.00%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="score-bar"></div>
+            </div>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-box">
+              <span class="box-label">Umbral IA</span>
+              <span class="box-val" id="val-threshold">0.35</span>
+            </div>
+            <div class="metric-box">
+              <span class="box-label">Ruido Base</span>
+              <span class="box-val" id="val-baseline">0.00</span>
+            </div>
+            <div class="metric-box">
+              <span class="box-label">Muestras</span>
+              <span class="box-val" id="val-frames">0 / 45</span>
+            </div>
+            <div class="metric-box">
+              <span class="box-label">FPS</span>
+              <span class="box-val" id="val-fps">0</span>
+            </div>
+          </div>
+
+          <div class="status-summary">
+            <div class="status-summary-item">
+              <span class="dot-indicator dot-cyan"></span>
+              <span class="sum-text">Modelo: <strong id="model-name-text">YOLOv8-EfficientNet</strong></span>
+            </div>
+            <div class="status-summary-item">
+              <span class="dot-indicator dot-green" id="hys-indicator"></span>
+              <span class="sum-text">Promedio Móvil (Histéresis): <strong id="hys-val-text">0.00</strong></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>Diseñado con <i class="fa-solid fa-heart"></i> para la Universidad Nacional del Noroeste de la Provincia de Buenos Aires (UNNOBA)</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
