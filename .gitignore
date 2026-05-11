@@ -5,6 +5,7 @@
 # Python caché
 __pycache__/
 *.pyc
+.venv/
 
 # Carpeta temporal residual
 Procesamiento%20imagenes/
