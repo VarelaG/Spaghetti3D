@@ -12,6 +12,7 @@ try:
     from camera_stream import CameraStream
     from detector import NozzleDetector
     from classifier import AnomalyClassifier
+    from yolo_classifier import YoloClassifier # Nuevo Motor Pro
     from logic import FailureLogic
 except ImportError as e:
     print(f"[ERROR] No se pudo encontrar un módulo local: {e}")
@@ -21,6 +22,8 @@ def main():
     parser = argparse.ArgumentParser(description="AI 3D Printer Monitor - Self-Calibrating with Auto-Pause")
     parser.add_argument("--camera", type=str, default="0")
     parser.add_argument("--classifier_model", type=str, default="models/anomaly_efficientnet.tflite")
+    parser.add_argument("--threshold", type=float, default=None, help="Forzar umbral manual (ej. 0.45)")
+    parser.add_argument("--enhance", action="store_true", help="Activar modo de alto contraste (CLAHE)")
     parser.add_argument("--no_view", action="store_true", help="Desactivar visualizacion")
     args = parser.parse_args()
 
@@ -32,8 +35,22 @@ def main():
         return
 
     detector = NozzleDetector()
-    classifier = AnomalyClassifier(args.classifier_model)
-    logic = FailureLogic(window_size=15, alert_threshold=0.6)
+    
+    # CARGADOR DUAL DE INTELIGENCIA ARTIFICIAL
+    model_path = args.classifier_model
+    
+    if model_path.endswith(".pt"):
+        # MODO PROFESIONAL (Ultralytics YOLO)
+        print(f"[*] Iniciando en Modo Profesional (YOLO PyTorch): {model_path}")
+        manual_th = args.threshold if args.threshold is not None else 0.45
+        classifier = YoloClassifier(model_path, manual_threshold=manual_th)
+    else:
+        # MODO LIGERO (TFLite)
+        print(f"[*] Iniciando en Modo Ligero (EfficientNet TFLite): {model_path}")
+        classifier = AnomalyClassifier(model_path, manual_threshold=args.threshold, use_enhancer=args.enhance)
+    
+    # Ajustamos la logica temporal para ser mas reactiva
+    logic = FailureLogic(window_size=12, alert_threshold=0.45)
     
     print("\n>>> MONITOREO AUTOMATICO ACTIVO <<<")
 

@@ -65,6 +65,15 @@ Puedes correr el sistema pasando la dirección de tu webcam o un archivo de vide
   python main.py --camera 0
   ```
 
+### 🏆 4. MODO PROFESIONAL COMERCIAL (YOLOv11)
+Para usar el motor de máxima precisión que instalamos, usa este comando:
+
+```bash
+python3 main.py --camera TU_VIDEO.mp4 --classifier_model models/spaghetti_pro.pt
+```
+
+*(Alternativamente, puedes ejecutar el atajo interactivo `./ejecutar_pro.sh`)*
+
 ---
 
 ## 📊 Demostración de Resultados en Tiempo Real

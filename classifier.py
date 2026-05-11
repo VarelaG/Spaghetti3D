@@ -12,9 +12,14 @@ except ImportError:
         logging.warning("No se encontró tflite_runtime.")
 
 class AnomalyClassifier:
-    def __init__(self, model_path):
+    def __init__(self, model_path, manual_threshold=None, use_enhancer=False):
         self.interpreter = None
-        if not os.path.exists(model_path): return
+        self.use_enhancer = use_enhancer
+        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        
+        if not os.path.exists(model_path): 
+            logging.error(f"Modelo no encontrado en: {model_path}")
+            return
 
         try:
             self.interpreter = tflite.Interpreter(model_path=model_path)
@@ -23,20 +28,35 @@ class AnomalyClassifier:
             self.output_details = self.interpreter.get_output_details()
             self.input_shape = self.input_details[0]['shape'][1:3]
             
-            # --- Variables de Autocalibracion Dinamica ---
+            # Variables de Umbral
             self.processed_frames = 0
-            self.calibration_limit = 45  # Calibra durante los primeros ~3-4 segundos de video
+            self.calibration_limit = 45
             self.max_baseline_score = 0.0
-            self.threshold = 0.35  # Valor inicial por defecto
             self.is_calibrated = False
             
-            logging.info(f"IA lista con entrada: {self.input_shape}. Algoritmo de Autocalibracion Dinamica Activo.")
+            if manual_threshold is not None:
+                self.threshold = float(manual_threshold)
+                self.is_calibrated = True
+                logging.info(f"--> MODO MANUAL: Umbral fijado por usuario en {self.threshold}")
+            else:
+                self.threshold = 0.35 # Base
+                logging.info("--> MODO AUTOMATICO: Iniciando calibracion dinamica.")
+                
+            logging.info(f"IA lista con entrada: {self.input_shape}. Filtro realce: {use_enhancer}")
         except Exception as e:
             logging.error(f"Error carga TFLite: {e}")
 
     def preprocess(self, abn_frame):
         if abn_frame is None: return None
         img = cv2.resize(abn_frame, (self.input_shape[1], self.input_shape[0]))
+        
+        # --- MEJORA COMERCIAL: Realce de Contraste Dinámico ---
+        if self.use_enhancer:
+            # Usamos CLAHE en el canal de luminosidad (Espacio LAB)
+            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+            lab[:,:,0] = self.clahe.apply(lab[:,:,0])
+            img = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+            
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = img.astype(np.float32) / 255.0
         return np.expand_dims(img, axis=0)
@@ -51,7 +71,7 @@ class AnomalyClassifier:
             self.interpreter.invoke()
             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
             
-            # Estructura YOLOv8 Detect [1, 8, 8400]
+            # Extraccion robusta del score
             if len(output_data.shape) == 3 and output_data.shape[1] == 8:
                 class_scores = output_data[0, 4:, :] 
                 score = float(np.max(class_scores))
@@ -59,24 +79,22 @@ class AnomalyClassifier:
                 flat_output = output_data.flatten()
                 score = float(flat_output[0])
                 
-            # --- FASE DE AUTOCALIBRACION DINAMICA (Universal) ---
+            # --- Lógica de Decisión ---
             if not self.is_calibrated:
                 self.processed_frames += 1
                 if score > self.max_baseline_score:
                     self.max_baseline_score = score
                 
-                label = 0  # No disparamos errores durante la fase de calibracion inicial
-                
                 if self.processed_frames >= self.calibration_limit:
-                    # Fijamos el umbral dinamico agregando un margen del 15% sobre el ruido base observado
-                    self.threshold = min(0.88, max(0.20, self.max_baseline_score + 0.15))
+                    # Clamp para no bloquear detecciones reales si el inicio tiene ruido
+                    self.threshold = min(0.75, max(0.25, self.max_baseline_score + 0.12))
                     self.is_calibrated = True
-                    logging.info(f"--> Autocalibracion Completada. Ruido Base: {self.max_baseline_score:.4f} | Umbral Fijado: {self.threshold:.4f}")
+                    logging.info(f"--> Calibracion Completada: Umbral fijado en {self.threshold:.3f}")
+                return score, 0
             else:
-                # Fase de Monitoreo Activo usando el umbral auto-aprendido
-                label = 1 if score > self.threshold else 0 
+                label = 1 if score >= self.threshold else 0 
+                return score, label
                 
-            return score, label
         except Exception as e:
             logging.error(f"Error clasificación: {e}")
             return 0.0, 0
