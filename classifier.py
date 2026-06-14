@@ -86,8 +86,8 @@ class AnomalyClassifier:
                     self.max_baseline_score = score
                 
                 if self.processed_frames >= self.calibration_limit:
-                    # Clamp para no bloquear detecciones reales si el inicio tiene ruido
-                    self.threshold = min(0.75, max(0.25, self.max_baseline_score + 0.12))
+                    # Clamp para no bloquear detecciones reales si el inicio tiene ruido (alineado con web/app.js)
+                    self.threshold = min(0.88, max(0.25, self.max_baseline_score + 0.15))
                     self.is_calibrated = True
                     logging.info(f"--> Calibracion Completada: Umbral fijado en {self.threshold:.3f}")
                 return score, 0

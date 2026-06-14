@@ -43,7 +43,7 @@ def main():
         # MODO PROFESIONAL (Ultralytics YOLO)
         print(f"[*] Iniciando en Modo Profesional (YOLO PyTorch): {model_path}")
         manual_th = args.threshold if args.threshold is not None else 0.45
-        classifier = YoloClassifier(model_path, manual_threshold=manual_th)
+        classifier = YoloClassifier(model_path, manual_threshold=manual_th, use_enhancer=args.enhance)
     else:
         # MODO LIGERO (TFLite)
         print(f"[*] Iniciando en Modo Ligero (EfficientNet TFLite): {model_path}")
