@@ -62,6 +62,33 @@ class PrinterControl:
             return self._send_request('/printer/print/cancel')
         return False
 
+    def start_print(self):
+        """Inicia o reanuda la impresión en el sistema de la impresora."""
+        logging.info("Solicitando INICIO de impresión...")
+        if self.type == 'octoprint':
+            return self._send_request('/api/job', json_data={"command": "start"})
+        elif self.type == 'moonraker':
+            return self._send_request('/printer/print/start')
+        return False
+
+    def resume_print(self):
+        """Reanuda la impresión pausada."""
+        logging.info("Solicitando REANUDAR impresión...")
+        if self.type == 'octoprint':
+            return self._send_request('/api/job', json_data={"command": "pause", "action": "resume"})
+        elif self.type == 'moonraker':
+            return self._send_request('/printer/print/resume')
+        return False
+
+    def test_connection(self):
+        """Verifica que el host de la impresora responda y la clave API sea válida."""
+        logging.info("Verificando conexión con la impresora...")
+        if self.type == 'octoprint':
+            return self._send_request('/api/version', method='GET')
+        elif self.type == 'moonraker':
+            return self._send_request('/printer/info', method='GET')
+        return False
+
     def emergency_stop(self):
         """Parada de emergencia (M112)."""
         logging.critical("¡ENVIANDO PARADA DE EMERGENCIA!")

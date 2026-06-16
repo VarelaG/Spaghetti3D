@@ -125,7 +125,7 @@
                 <p>ANOMALÍA DETECTADA EN LA IMPRESIÓN</p>
                 <div class="alert-sub">Fallo Crítico confirmado por YOLOv11 Pro (Media Móvil)</div>
                 <button class="btn btn-secondary" id="btn-dismiss-alert">
-                  <i class="fa-solid fa-rotate-left"></i> Reanudar Monitoreo
+                  <i class="fa-solid fa-rotate-left"></i> Reanudar Monitoreo e Impresión
                 </button>
               </div>
             </div>
@@ -156,6 +156,23 @@
             </select>
           </div>
 
+          <div class="camera-selection">
+            <label for="printer-host"><i class="fa-solid fa-network-wired"></i> OctoPrint / Moonraker Host:</label>
+            <input id="printer-host" class="custom-select" type="text" placeholder="http://192.168.1.100" />
+          </div>
+          <div class="camera-selection">
+            <label for="printer-api-key"><i class="fa-solid fa-key"></i> API Key:</label>
+            <input id="printer-api-key" class="custom-select" type="text" placeholder="X-Api-Key de OctoPrint" />
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top:0.75rem;">
+            <label for="chk-auto-pause" style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; gap: 0.5rem; user-select: none;">
+              <i class="fa-solid fa-power-off"></i> Pausa automática en fallo
+            </label>
+            <input type="checkbox" id="chk-auto-pause" style="width: 1.15rem; height: 1.15rem; cursor: pointer; accent-color: var(--neon-cyan);">
+          </div>
+          <div id="printer-connection-msg" style="margin-top: 0.75rem; color: var(--text-secondary); font-size: 0.85rem; min-height: 1.2rem;"></div>
+          <p class="section-desc" style="margin-top: 0.5rem;">Si activás esto, el sistema verificará la conexión con OctoPrint/Moonraker antes de iniciar el monitoreo.</p>
+
           <div class="divider"></div>
 
           <!-- Selección de Calibración o Umbral Manual -->
@@ -183,13 +200,45 @@
             </div>
           </div>
 
-          <div class="btn-group">
-            <button class="btn btn-primary" id="btn-start">
-              <i class="fa-solid fa-play"></i> Iniciar Monitoreo
-            </button>
-            <button class="btn btn-danger" id="btn-stop" disabled>
-              <i class="fa-solid fa-stop"></i> Detener
-            </button>
+          <!-- Control Clarification -->
+          <div style="margin-bottom: 1.2rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(140,255,159,0.15);">
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0; line-height: 1.5;">
+              <i class="fa-solid fa-circle-info" style="color: var(--neon-cyan); margin-right: 0.5rem;"></i>
+              <strong style="color: var(--text-primary);">Monitoreo:</strong> Controla la IA<br>
+              <strong style="color: var(--text-primary);">Impresión:</strong> Controla OctoPrint
+            </p>
+          </div>
+
+          <div class="btn-group" style="grid-template-columns: 1fr; gap: 1.2rem;">
+            <!-- Iniciar Monitoreo e Impresión -->
+            <div>
+              <button class="btn btn-primary" id="btn-start">
+                <i class="fa-solid fa-play"></i> Iniciar Monitoreo e Impresión
+              </button>
+              <small style="display: block; color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.5rem; text-align: center;">
+                Activa IA + Inicia impresora (si OctoPrint está conectado)
+              </small>
+            </div>
+
+            <!-- Detener Monitoreo -->
+            <div>
+              <button class="btn btn-danger" id="btn-stop" disabled>
+                <i class="fa-solid fa-stop"></i> Detener Monitoreo
+              </button>
+              <small style="display: block; color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.5rem; text-align: center;">
+                Detiene solo la IA, la impresora sigue
+              </small>
+            </div>
+
+            <!-- Cancelar Impresión -->
+            <div id="cancel-print-wrapper" style="display: none;">
+              <button class="btn btn-warning" id="btn-cancel-print" disabled>
+                <i class="fa-solid fa-ban"></i> Cancelar Impresión
+              </button>
+              <small style="display: block; color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.5rem; text-align: center;">
+                Cancela el trabajo de impresión en OctoPrint
+              </small>
+            </div>
           </div>
         </div>
 
@@ -224,6 +273,14 @@
               <span class="box-label">FPS</span>
               <span class="box-val" id="val-fps">0</span>
             </div>
+            <div class="metric-box">
+              <span class="box-label">OctoPrint</span>
+              <span class="box-val" id="val-printer-status">OFF</span>
+            </div>
+            <div class="metric-box">
+              <span class="box-label">Acción impresora</span>
+              <span class="box-val" id="val-printer-action">N/A</span>
+            </div>
           </div>
 
           <div class="status-summary">
@@ -257,8 +314,13 @@
     
     const selectModel = document.getElementById('model-select');
     const selectVideo = document.getElementById('video-select');
+    const printerHostInput = document.getElementById('printer-host');
+    const printerApiKeyInput = document.getElementById('printer-api-key');
+    const chkAutoPause = document.getElementById('chk-auto-pause');
     const btnStart = document.getElementById('btn-start');
     const btnStop = document.getElementById('btn-stop');
+    const btnCancelPrint = document.getElementById('btn-cancel-print');
+    const cancelPrintWrapper = document.getElementById('cancel-print-wrapper');
     const btnDismissAlert = document.getElementById('btn-dismiss-alert');
 
     // Nuevos controles de calibración y umbral
@@ -274,6 +336,9 @@
     const elValAvgFail = document.getElementById('val-avg-fail');
     const elValStateText = document.getElementById('val-state-text');
     const elValFps = document.getElementById('val-fps');
+    const elValPrinterStatus = document.getElementById('val-printer-status');
+    const elValPrinterAction = document.getElementById('val-printer-action');
+    const elPrinterConnectionMsg = document.getElementById('printer-connection-msg');
     const elHysIndicator = document.getElementById('hys-indicator');
     const elHysValText = document.getElementById('hys-val-text');
     const elModelNameText = document.getElementById('model-name-text');
@@ -302,7 +367,7 @@
     }
 
     // Actualizar estados visuales de la interfaz
-    function updateUIState(state, conf, avgFail, threshold, fps) {
+    function updateUIState(state, conf, avgFail, threshold, fps, printerConnected = false, printerAction = null, printerError = null) {
       // 1. Confianza e indicador de barra
       const scorePct = Math.min(100, Math.max(0, conf * 100));
       elScoreBar.style.width = `${scorePct}%`;
@@ -323,7 +388,18 @@
       elValThreshold.textContent = threshold.toFixed(2);
       elValAvgFail.textContent = avgFail.toFixed(2);
       elValFps.textContent = fps;
+      elValPrinterStatus.textContent = printerConnected ? 'OK' : 'OFF';
+      elValPrinterAction.textContent = printerAction || 'N/A';
       elValStateText.textContent = state;
+      if (printerError) {
+        elPrinterConnectionMsg.textContent = printerError;
+        elPrinterConnectionMsg.style.color = '#ff5f7a';
+      } else if (printerConnected) {
+        elPrinterConnectionMsg.textContent = 'OctoPrint conectado correctamente.';
+        elPrinterConnectionMsg.style.color = '#8cff9f';
+      } else {
+        elPrinterConnectionMsg.textContent = '';
+      }
 
       // 3. Estado general (Semáforo de colores)
       if (state === 'FALLO CRÍTICO') {
@@ -390,7 +466,11 @@
             model: selectedModel,
             calibrate: useCalibrate,
             threshold: manualThreshold,
-            enhance: useEnhance
+            enhance: useEnhance,
+            printer_host: printerHostInput.value.trim(),
+            printer_api_key: printerApiKeyInput.value.trim(),
+            printer_type: 'octoprint',
+            auto_pause: chkAutoPause.checked
           })
         });
         
@@ -405,6 +485,21 @@
           chkCalibrate.disabled = true;
           chkEnhance.disabled = true;
           rngThreshold.disabled = true;
+          printerHostInput.disabled = true;
+          printerApiKeyInput.disabled = true;
+          chkAutoPause.disabled = true;
+          
+          // Mostrar botón de cancelar impresión si OctoPrint está conectado
+          if (resData.printer_connected) {
+            btnCancelPrint.disabled = false;
+            cancelPrintWrapper.style.display = 'block';
+            elPrinterConnectionMsg.textContent = resData.printer_started ? 'OctoPrint conectado y la impresión fue iniciada.' : 'OctoPrint conectado correctamente.';
+            elPrinterConnectionMsg.style.color = '#8cff9f';
+          } else {
+            btnCancelPrint.disabled = true;
+            cancelPrintWrapper.style.display = 'none';
+            elPrinterConnectionMsg.textContent = '';
+          }
           
           // Ocultar placeholder y mostrar stream
           elPlaceholder.style.opacity = '0';
@@ -420,6 +515,8 @@
           // Iniciar intervalo para consultar estado
           statusInterval = setInterval(fetchStatus, 200);
         } else {
+          elPrinterConnectionMsg.textContent = resData.error || 'Error al iniciar monitoreo.';
+          elPrinterConnectionMsg.style.color = '#ff5f7a';
           alert(`Error al iniciar: ${resData.error}`);
         }
       } catch (err) {
@@ -440,15 +537,38 @@
       }
     }
 
+    // Cancelar Impresión
+    async function cancelPrint() {
+      try {
+        const response = await fetch('/api/printer/cancel', { method: 'POST' });
+        const data = await response.json();
+        if (response.ok) {
+          alert('Impresión cancelada correctamente.');
+          // Opcionalmente, detener también el monitoreo
+          await stopMonitoring();
+        } else {
+          alert(`Error: ${data.error || 'No se pudo cancelar la impresión'}`);
+        }
+      } catch (err) {
+        console.error("Error al cancelar impresión:", err);
+        alert('Fallo al comunicarse con el servidor.');
+      }
+    }
+
     function cleanStopState() {
       isMonitoring = false;
       btnStart.disabled = false;
       btnStop.disabled = true;
+      btnCancelPrint.disabled = true;
+      cancelPrintWrapper.style.display = 'none';
       selectModel.disabled = false;
       selectVideo.disabled = false;
       chkCalibrate.disabled = false;
       chkEnhance.disabled = false;
       rngThreshold.disabled = false;
+      printerHostInput.disabled = false;
+      printerApiKeyInput.disabled = false;
+      chkAutoPause.disabled = false;
       
       if (statusInterval) {
         clearInterval(statusInterval);
@@ -470,6 +590,11 @@
       
       // Resetear visualmente las métricas
       updateUIState('DESCONECTADO', 0.0, 0.0, 0.45, 0);
+      elPrinterConnectionMsg.textContent = '';
+      elValPrinterAction.textContent = 'N/A';
+      printerHostInput.disabled = false;
+      printerApiKeyInput.disabled = false;
+      chkAutoPause.disabled = false;
     }
 
     // Consultar estado actual del backend
@@ -481,7 +606,7 @@
         const data = await response.json();
         
         if (data.active) {
-          updateUIState(data.state, data.score, data.avg_fail, data.threshold, data.fps);
+          updateUIState(data.state, data.score, data.avg_fail, data.threshold, data.fps, data.printer_connected, data.printer_action, data.printer_error);
         } else {
           // El stream terminó (ej. se acabó el video de prueba)
           cleanStopState();
@@ -543,9 +668,13 @@
     // Listeners
     btnStart.addEventListener('click', startMonitoring);
     btnStop.addEventListener('click', stopMonitoring);
+    btnCancelPrint.addEventListener('click', cancelPrint);
     btnDismissAlert.addEventListener('click', async () => {
       // Reanudar el monitoreo (apaga la alerta y reinicia la ventana de fallos en el backend)
       try {
+        if (chkAutoPause.checked && printerHostInput.value.trim() && printerApiKeyInput.value.trim()) {
+          await fetch('/api/printer/resume', { method: 'POST' });
+        }
         await fetch('/api/recalibrate', { method: 'POST' });
         dismissEmergencyAlert();
       } catch (err) {

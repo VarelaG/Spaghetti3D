@@ -16,6 +16,7 @@ try:
     from yolo_classifier import YoloClassifier
     from classifier import AnomalyClassifier
     from logic import FailureLogic
+    from printer_control import PrinterControl
     import cv2
 except ImportError as e:
     logging.error(f"No se pudo cargar un módulo necesario: {e}")
@@ -31,6 +32,14 @@ monitor_thread = None
 latest_frame = None
 recalibrate_flag = False
 frame_lock = threading.Lock()
+printer_control = None
+printer_config = {
+    "host": None,
+    "api_key": None,
+    "printer_type": "octoprint",
+    "auto_pause": False,
+    "enabled": False
+}
 
 # Métricas iniciales
 metrics = {
@@ -39,14 +48,17 @@ metrics = {
     "avg_fail": 0.0,
     "threshold": 0.45,
     "fps": 0,
-    "state": "DESCONECTADO"
+    "state": "DESCONECTADO",
+    "printer_connected": False,
+    "printer_action": None,
+    "printer_error": None
 }
 
 def monitor_loop(src, use_calibrate=True, manual_threshold=None, model_path="models/spaghetti_pro.pt", use_enhance=False):
     """
     Bucle principal de procesamiento de imágenes y predicción IA en segundo plano.
     """
-    global monitoring_active, latest_frame, metrics, recalibrate_flag
+    global monitoring_active, latest_frame, metrics, recalibrate_flag, printer_control, printer_config
     
     logging.info(f"[BACKEND] Iniciando monitoreo de fuente: {src} (Modelo: {model_path}, Calibrar: {use_calibrate}, Realce CLAHE: {use_enhance}, Umbral: {manual_threshold})")
     
@@ -56,6 +68,9 @@ def monitor_loop(src, use_calibrate=True, manual_threshold=None, model_path="mod
     metrics["avg_fail"] = 0.0
     metrics["fps"] = 0
     metrics["state"] = "CALIBRANDO" if use_calibrate else "MONITOREANDO"
+    metrics["printer_connected"] = printer_control is not None
+    metrics["printer_action"] = None
+    metrics["printer_error"] = None
     
     try:
         # Si la entrada es un número (ej. "0"), abrirla como índice de cámara web
@@ -156,6 +171,14 @@ def monitor_loop(src, use_calibrate=True, manual_threshold=None, model_path="mod
                         state_label = "FALLO CRÍTICO"
                         paused_on_error = True
                         frozen_frame = frame.copy()
+                        # Si la impresora está configurada y la pausa automática está habilitada, enviamos la orden
+                        if printer_control is not None and printer_config.get("auto_pause", False):
+                            success = printer_control.pause_print()
+                            metrics["printer_action"] = "pause_sent" if success else "pause_failed"
+                            metrics["printer_error"] = None if success else "Error pausando impresora"
+                        else:
+                            metrics["printer_action"] = None
+                            metrics["printer_error"] = None
                     elif avg_fail > 0.2:
                         status_text = "AVISO: ANOMALIA SOSPECHOSA"
                         status_color = (0, 165, 255)  # Naranja
@@ -292,7 +315,7 @@ def list_videos():
 @app.route('/api/start', methods=['POST'])
 def start_monitoring():
     """Inicia el bucle de monitoreo con la fuente seleccionada y configuraciones de calibración."""
-    global monitoring_active, monitor_thread
+    global monitoring_active, monitor_thread, printer_control, printer_config
     
     if monitoring_active:
         return jsonify({"status": "error", "error": "El monitoreo ya está en ejecución"}), 400
@@ -303,7 +326,37 @@ def start_monitoring():
     manual_th = data.get("threshold", None)
     model_val = data.get("model", "models/spaghetti_pro.pt")
     use_enhance = data.get("enhance", False)
-    
+    printer_host = data.get("printer_host", "").strip()
+    printer_api_key = data.get("printer_api_key", "").strip()
+    printer_type = data.get("printer_type", "octoprint")
+    auto_pause = bool(data.get("auto_pause", False))
+
+    if auto_pause and (not printer_host or not printer_api_key):
+        return jsonify({"status": "error", "error": "Si activás la 'pausa automática' debés completar el Host del server de OctoPrint y su respectiva API Key."}), 400
+
+    printer_config.update({
+        "host": printer_host or None,
+        "api_key": printer_api_key or None,
+        "printer_type": printer_type,
+        "auto_pause": auto_pause,
+        "enabled": bool(printer_host and printer_api_key and auto_pause),
+        "configured": bool(printer_host and printer_api_key)
+    })
+
+    if printer_config["configured"]:
+        logging.info("[BACKEND] Verificando conexión con OctoPrint/Moonraker antes de iniciar monitoreo.")
+        printer_control = PrinterControl(printer_host, printer_api_key, printer_type=printer_type)
+        connected = printer_control.test_connection()
+        metrics["printer_connected"] = connected
+        if not connected:
+            printer_control = None
+            if auto_pause:
+                monitoring_active = False
+                return jsonify({"status": "error", "error": "No se pudo conectar con OctoPrint/Moonraker. Revisa la URL/API Key."}), 400
+    else:
+        printer_control = None
+        metrics["printer_connected"] = False
+
     monitoring_active = True
     monitor_thread = threading.Thread(
         target=monitor_loop, 
@@ -311,8 +364,19 @@ def start_monitoring():
         daemon=True
     )
     monitor_thread.start()
-    
-    return jsonify({"status": "success", "message": f"Monitoreo iniciado con fuente {source_val}"})
+
+    printer_started = False
+    if printer_control is not None and metrics["printer_connected"]:
+        printer_started = printer_control.start_print()
+        metrics["printer_action"] = "start_sent" if printer_started else "start_failed"
+        metrics["printer_error"] = None if printer_started else "Error iniciando impresión"
+
+    return jsonify({
+        "status": "success",
+        "message": f"Monitoreo iniciado con fuente {source_val}",
+        "printer_connected": metrics["printer_connected"],
+        "printer_started": printer_started
+    })
 
 @app.route('/api/stop', methods=['POST'])
 def stop_monitoring():
@@ -336,6 +400,28 @@ def reset_alert():
         recalibrate_flag = True
         return jsonify({"status": "success", "message": "Reseteo enviado con éxito"})
     return jsonify({"status": "error", "error": "El monitoreo no está en ejecución"}), 400
+
+@app.route('/api/printer/resume', methods=['POST'])
+def resume_printer():
+    """Reanuda la impresión pausada en OctoPrint/Moonraker."""
+    if printer_control is None:
+        return jsonify({"status": "error", "error": "Impresora no configurada"}), 400
+
+    success = printer_control.resume_print()
+    if success:
+        return jsonify({"status": "success", "message": "Impresión reanudada"})
+    return jsonify({"status": "error", "error": "No se pudo reanudar la impresión"}), 500
+
+@app.route('/api/printer/cancel', methods=['POST'])
+def cancel_print_job():
+    """Cancela el trabajo de impresión en OctoPrint/Moonraker."""
+    if printer_control is None:
+        return jsonify({"status": "error", "error": "Impresora no configurada"}), 400
+
+    success = printer_control.cancel_print()
+    if success:
+        return jsonify({"status": "success", "message": "Impresión cancelada"})
+    return jsonify({"status": "error", "error": "No se pudo cancelar la impresión"}), 500
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
