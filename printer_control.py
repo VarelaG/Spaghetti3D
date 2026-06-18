@@ -1,5 +1,9 @@
 import requests
 import logging
+import urllib3
+
+# Suppress InsecureRequestWarning when verify=False
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class PrinterControl:
     """
@@ -27,21 +31,28 @@ class PrinterControl:
 
         try:
             url = f"{self.host}{endpoint}"
+            logging.info(f"[PRINTER] {method} {url}")
             if method == 'POST':
-                response = requests.post(url, headers=headers, json=json_data, timeout=self.timeout)
+                response = requests.post(url, headers=headers, json=json_data, timeout=self.timeout, verify=False)
             else:
-                response = requests.get(url, headers=headers, timeout=self.timeout)
+                response = requests.get(url, headers=headers, timeout=self.timeout, verify=False)
 
-            # Para Moonraker, a veces se usa JSON-RPC sobre HTTP POST a /printer/print/pause
-            # pero aquí usamos los endpoints REST directos que Moonraker también soporta.
-            
             if response.status_code >= 200 and response.status_code < 300:
                 return True
             else:
-                logging.error(f"La impresora respondió con error {response.status_code}: {response.text}")
+                logging.error(f"[PRINTER] Error {response.status_code}: {response.text}")
                 return False
+        except requests.exceptions.SSLError as e:
+            logging.error(f"[PRINTER] SSL Error (certificado no válido): {e}")
+            return False
+        except requests.exceptions.ConnectionError as e:
+            logging.error(f"[PRINTER] Error de conexión (no se pudo alcanzar el host): {e}")
+            return False
+        except requests.exceptions.Timeout as e:
+            logging.error(f"[PRINTER] Timeout: el servidor no respondió en {self.timeout}s: {e}")
+            return False
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error de conexión con la impresora: {e}")
+            logging.error(f"[PRINTER] Error inesperado: {type(e).__name__}: {e}")
             return False
 
     def pause_print(self):

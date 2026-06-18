@@ -8,6 +8,7 @@
   <!-- SEO & Mobile Optimization -->
   <meta name="description" content="Monitoreo inteligente local de fallos de impresión 3D en tiempo real con YOLOv11 Pro.">
   <meta name="theme-color" content="#0a0b10">
+  <link rel="icon" type="image/png" href="img/3d-printer.png">
   
   <!-- Google Fonts & FontAwesome -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -137,7 +138,11 @@
       <section class="control-section">
         <!-- Controls Card -->
         <div class="glass-card card-controls">
-          <h3><i class="fa-solid fa-sliders"></i> Panel de Control</h3>
+          <div class="card-header">
+            <h3><i class="fa-solid fa-sliders"></i> Panel de Control</h3>
+            <button class="btn-minimize" id="btn-collapse-controls" title="Minimizar"><i class="fa-solid fa-chevron-up"></i></button>
+          </div>
+          <div class="card-body" id="body-controls">
           <p class="section-desc">Elegí un video de prueba de tu directorio o iniciá la cámara web local.</p>
           
           <div class="camera-selection" style="margin-bottom: 1rem;">
@@ -154,6 +159,11 @@
               <option value="0">Cámara Web Local (0)</option>
               <!-- Las opciones de videos locales se cargarán dinámicamente -->
             </select>
+          </div>
+
+          <div class="camera-selection">
+            <label for="custom-stream-url"><i class="fa-solid fa-link"></i> URL de Stream de Cámara:</label>
+            <input id="custom-stream-url" class="custom-select" type="text" placeholder="(pegá la URL del stream de la cámara acá, ej: http://192.168.1.50:8080/video)" />
           </div>
 
           <div class="camera-selection">
@@ -244,7 +254,11 @@
 
         <!-- Diagnostics Card -->
         <div class="glass-card card-diagnostics">
-          <h3><i class="fa-solid fa-chart-simple"></i> Diagnósticos de IA</h3>
+          <div class="card-header">
+            <h3><i class="fa-solid fa-chart-simple"></i> Diagnósticos de IA</h3>
+            <button class="btn-minimize" id="btn-collapse-diagnostics" title="Minimizar"><i class="fa-solid fa-chevron-up"></i></button>
+          </div>
+          <div class="card-body" id="body-diagnostics">
           
           <div class="metric-container">
             <div class="metric-header">
@@ -294,6 +308,7 @@
             </div>
           </div>
         </div>
+        </div>
       </section>
     </main>
 
@@ -314,6 +329,7 @@
     
     const selectModel = document.getElementById('model-select');
     const selectVideo = document.getElementById('video-select');
+    const customStreamUrl = document.getElementById('custom-stream-url');
     const printerHostInput = document.getElementById('printer-host');
     const printerApiKeyInput = document.getElementById('printer-api-key');
     const chkAutoPause = document.getElementById('chk-auto-pause');
@@ -447,7 +463,8 @@
 
     // Iniciar Monitoreo
     async function startMonitoring() {
-      const selectedSource = selectVideo.value;
+      const customUrl = customStreamUrl.value.trim();
+      const selectedSource = customUrl || selectVideo.value;
       const selectedModel = selectModel.value;
       const useCalibrate = chkCalibrate.checked;
       const useEnhance = chkEnhance.checked;
@@ -482,6 +499,7 @@
           btnStop.disabled = false;
           selectModel.disabled = true;
           selectVideo.disabled = true;
+          customStreamUrl.disabled = true;
           chkCalibrate.disabled = true;
           chkEnhance.disabled = true;
           rngThreshold.disabled = true;
@@ -563,6 +581,7 @@
       cancelPrintWrapper.style.display = 'none';
       selectModel.disabled = false;
       selectVideo.disabled = false;
+      customStreamUrl.disabled = false;
       chkCalibrate.disabled = false;
       chkEnhance.disabled = false;
       rngThreshold.disabled = false;
@@ -695,6 +714,27 @@
     rngThreshold.addEventListener('input', () => {
       lblThresholdVal.textContent = parseFloat(rngThreshold.value).toFixed(2);
     });
+
+    // Minimize panel toggles
+    function setupMinimize(btnId, bodyId) {
+      const btn = document.getElementById(btnId);
+      const body = document.getElementById(bodyId);
+      const icon = btn.querySelector('i');
+
+      // Set initial max-height for animation
+      body.style.maxHeight = body.scrollHeight + 'px';
+
+      btn.addEventListener('click', () => {
+        const isCollapsed = body.classList.toggle('collapsed');
+        icon.className = isCollapsed ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
+        if (!isCollapsed) {
+          body.style.maxHeight = body.scrollHeight + 'px';
+        }
+      });
+    }
+
+    setupMinimize('btn-collapse-controls', 'body-controls');
+    setupMinimize('btn-collapse-diagnostics', 'body-diagnostics');
 
     // Cargar datos iniciales
     window.addEventListener('DOMContentLoaded', loadVideos);
